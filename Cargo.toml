@@ -1,0 +1,23 @@
+[package]
+name = "balatro_mod_manager"
+description = "a library for downloading Balatro mods and interacting with the `balatro_mod_index` crate."
+version = "0.0.1"
+edition = "2024"
+license = "LGPL-3.0-only"
+exclude = [".gitignore", "flake.*"]
+keywords = ["balatro", "modding", "balatro-mod-manager", "balatro-mod-index", "BMM"]
+categories = [
+  "development-tools",
+  "web-programming::http-client"
+]
+
+[lib]
+name = "balatro_mod_manager"
+
+[dependencies]
+balatro_mod_index = { version = "0.3.1", features = ["reqwest"] }
+reqwest = "0.12.20"
+zip = "4.0.0"
+
+[package.metadata.docs.rs]
+all-features = true
