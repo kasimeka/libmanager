@@ -155,8 +155,7 @@ dependencies = [
 [[package]]
 name = "balatro_mod_index"
 version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "efed9bfd909658d101e9554b9fa721cce813bac15a266ef9ddda72b8b660e5d7"
+source = "git+https://github.com/balatro-mod-index/lib?branch=playground#c873bc354e50c1478bc7337a130388a623429c69"
 dependencies = [
  "bytes",
  "cached",
@@ -170,7 +169,7 @@ dependencies = [
 
 [[package]]
 name = "balatro_mod_manager"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "balatro_mod_index",
  "dirs",
@@ -1359,9 +1358,9 @@ checksum = "74765f6d916ee2faa39bc8e68e4f3ed8949b48cccdac59983d287a7cb71ce9c5"
 
 [[package]]
 name = "redox_syscall"
-version = "0.5.12"
+version = "0.5.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "928fca9cf2aa042393a8325b9ead81d2f0df4cb12e1e24cef072922ccd99c5af"
+checksum = "0d04b7d0ee6b4a0207a0a7adb104d23ecb0b47d6beae7152d0fa34b692b29fd6"
 dependencies = [
  "bitflags",
 ]
