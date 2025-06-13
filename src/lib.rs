@@ -15,19 +15,43 @@ pub type ModEntry<'index> = (ModId, Mod<'index>);
 pub struct ModManager<'index> {
     pub index: ModIndex<'index>,
     pub installed_mods: HashMap<ModId, String>,
+    pub expected_mods: HashMap<ModId, String>,
 }
 impl ModManager<'_> {
-    pub fn mut_detect_installed_mods(&mut self) -> Result<(), String> {
+    pub fn detect_installed_mods(&mut self) -> Result<(), String> {
         self.installed_mods = detect_installed_mods()?;
         Ok(())
     }
-
-    pub fn uninstall_mod(&mut self, (id, m): &ModEntry) -> Result<(), String> {
-        _ = self.installed_mods.remove(id).ok_or("mod not installed")?;
-        uninstall_mod(m)?;
+    pub fn read_expected_mods(&mut self) -> Result<(), String> {
+        self.expected_mods = read_expected_mods()?;
         Ok(())
     }
+    pub fn write_expected_mods(&self) -> Result<(), String> {
+        let p = mods_dir()?.join(format!(".{}", crate::CRATE_NAME));
+        let mut expectfile = File::create(p).map_err(|e| e.to_string())?;
+        self.expected_mods
+            .iter()
+            .try_for_each(|(id, version)| {
+                writeln!(expectfile, "{id}/{version}").map_err(|e| e.to_string())
+            })
+            .map_err(|e| format!("failed to write expected mods: {e}"))
+    }
+    pub fn repopulate_expected_mods(&mut self) -> Result<(), String> {
+        self.expected_mods = self.installed_mods.clone();
+        self.write_expected_mods()
+    }
 
+    pub fn uninstall_mod(&mut self, (id, m): &ModEntry) -> Result<(), String> {
+        _ = self.installed_mods.get(id).ok_or("mod not installed")?;
+        let mod_dir = mod_path(m)?;
+        if !mod_dir.exists() {
+            return Ok(());
+        }
+        std::fs::remove_dir_all(mod_dir).map_err(|e| e.to_string())?;
+        self.installed_mods.remove(id);
+        self.expected_mods.remove(id);
+        self.write_expected_mods()
+    }
     pub async fn install_mod(
         &mut self,
         client: &reqwest::Client,
@@ -44,20 +68,10 @@ impl ModManager<'_> {
     }
 }
 
-fn uninstall_mod(m: &Mod<'_>) -> Result<(), String> {
-    let mod_dir = mod_path(m)?;
-
-    if !mod_dir.exists() {
-        return Ok(());
-    }
-
-    std::fs::remove_dir_all(mod_dir).map_err(|e| e.to_string())
-}
-
 async fn install_mod(
     manager: &mut ModManager<'_>,
     client: &reqwest::Client,
-    (id, m): &ModEntry<'_>,
+    e @ (id, m): &ModEntry<'_>,
     reinstall: bool,
 ) -> Result<(), String> {
     let outdir = mod_path(m)?;
@@ -87,13 +101,17 @@ async fn install_mod(
     zip.extract_unwrapped_root_dir(&outdir, root_dir_common_filter)
         .map_err(|e| e.to_string())?;
 
-    let mut statefile =
-        File::create(outdir.join(format!(".{}", crate::CRATE_NAME))).map_err(|e| e.to_string())?;
-    write!(statefile, "id {id}\nversion {}", m.meta.version).map_err(|e| e.to_string())?;
+    let statusfile = &mut File::create(outdir.join(format!(".{}", crate::CRATE_NAME)))
+        .map_err(|e| e.to_string())?;
+    write_status(e, statusfile).map_err(|e| e.to_string())?;
 
     manager
         .installed_mods
         .insert(id.clone(), m.meta.version.clone());
+    manager
+        .expected_mods
+        .insert(id.clone(), m.meta.version.clone());
+    manager.write_expected_mods()?;
     Ok(())
 }
 
@@ -103,9 +121,7 @@ fn mod_path(m: &Mod<'_>) -> Result<PathBuf, String> {
         .folder_name
         .clone()
         .unwrap_or_else(|| m.meta.title.chars().filter(char::is_ascii).collect());
-    let outdir = mods_dir()?.join(&basename);
-
-    Ok(outdir)
+    Ok(mods_dir()?.join(&basename))
 }
 
 fn detect_installed_mods() -> Result<HashMap<ModId, String>, String> {
@@ -129,7 +145,7 @@ fn detect_installed_mods() -> Result<HashMap<ModId, String>, String> {
 
         let (id, version) =
             parse_status(&std::fs::read_to_string(statefile).map_err(|e| e.to_string())?)?;
-        mods.insert(id, version);
+        mods.insert(id.clone(), version.clone());
     }
 
     Ok(mods)
@@ -148,30 +164,41 @@ fn mods_dir() -> Result<PathBuf, String> {
     Ok(mods_dir)
 }
 
-pub fn parse_status(meta: &str) -> Result<(ModId, String), String> {
-    let mut id = ModId::default();
-    let mut version = String::new();
-    for line in meta.lines() {
-        let (key, value) = line
-            .trim()
-            .split_once(' ')
-            .ok_or("line is not a key-value pair")?;
-        match key {
-            "id" => {
-                id = ModId(value.to_owned());
-                if id.0.is_empty() {
-                    return Err("id can't be empty".to_string());
-                }
+fn write_status<T>((id, m): &ModEntry<'_>, statusfile: &mut T) -> Result<(), String>
+where
+    T: Write,
+{
+    write!(statusfile, "{id}/{}", m.meta.version).map_err(|e| e.to_string())
+}
+fn parse_status(status: &str) -> Result<(ModId, String), String> {
+    status
+        .lines()
+        .find(|l| !l.trim().is_empty())
+        .ok_or("statusfile can't be empty")?
+        .split_once('/')
+        .map_or(Err("invalid statusfile format".into()), |(id, version)| {
+            if id.is_empty() {
+                return Err("id can't be empty".to_string());
             }
-            "version" => {
-                if value.is_empty() {
-                    return Err("version can't be empty".to_string());
-                }
-                value.clone_into(&mut version);
+            if version.is_empty() {
+                return Err("version can't be empty".to_string());
             }
-            _ => {}
-        }
-    }
+            Ok((ModId(id.into()), version.to_string()))
+        })
+}
 
-    Ok((id, version))
+fn read_expected_mods() -> Result<HashMap<ModId, String>, String> {
+    let p = mods_dir()?.join(format!(".{}", crate::CRATE_NAME));
+    if !p.exists() {
+        return Ok(HashMap::new());
+    }
+    Ok(std::fs::read_to_string(p)
+        .map_err(|e| e.to_string())?
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| {
+            l.split_once('/')
+                .map(|(id, version)| (ModId(id.into()), version.to_string()))
+        })
+        .collect::<HashMap<_, _>>())
 }

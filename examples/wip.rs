@@ -15,36 +15,39 @@ async fn main() -> Result<(), String> {
         index: ModIndex::from_reqwest(&reqwest, <&Tree>::default()).await?,
         ..Default::default()
     };
-    manager.mut_detect_installed_mods()?;
+    manager.detect_installed_mods()?;
+    manager.read_expected_mods()?;
 
-    let typist = manager
+    let mods = manager
         .index
         .mods
         .iter()
-        .find(|(id, _)| id == "kasimeka@typist")
-        .ok_or("`kasimeka@typist` not found in the index")?
-        .clone();
+        .filter(|(id, _)| id == "kasimeka@typist" || id == "Breezebuilder@SystemClock")
+        .cloned()
+        .collect::<Vec<_>>();
+    assert!(mods.len() == 2, "couldn't find expected mods");
 
-    manager
-        .uninstall_mod(&typist)
-        .or_else(|e| match e.as_str() {
+    for m in &mods {
+        manager.uninstall_mod(m).or_else(|e| match e.as_str() {
             "mod not installed" => {
-                log::warn!("didn't uninstall `kasimeka@typist` as it wasn't installed");
+                log::warn!("didn't uninstall `{}` as it wasn't installed", m.0);
                 Ok(())
             }
             _ => Err(format!("unexpected error while uninstalling mod: {e}")),
         })?;
+    }
     manager.installed_mods.iter().for_each(|(id, version)| {
-        log::info!("found managed mod: `{id}@{version}`");
+        log::info!("found managed mod: `{id}/{version}`");
     });
-
-    manager
-        .install_mod(&reqwest, &typist)
-        .await
-        .map_err(|e| format!("failed to install mod: {e}"))?;
-    log::info!("installed mod: `{}`", typist.0);
+    for m in &mods {
+        manager
+            .install_mod(&reqwest, m)
+            .await
+            .map_err(|e| format!("failed to install mod: {e}"))?;
+        log::info!("installed mod: `{}`", m.0);
+    }
     manager.installed_mods.iter().for_each(|(id, version)| {
-        log::info!("found managed mod: `{id}@{version}`");
+        log::info!("found managed mod: `{id}/{version}`");
     });
 
     Ok(())
