@@ -1,7 +1,7 @@
 // cargo run --example wip
 
 use balatro_mod_index::{forge::Tree, mods::ModIndex};
-use balatro_mod_manager::{ModManager, reinstall_mod, uninstall_mod};
+use balatro_mod_manager::ModManager;
 use env_logger::Env;
 
 #[tokio::main]
@@ -15,25 +15,31 @@ async fn main() -> Result<(), String> {
         index: ModIndex::from_reqwest(&reqwest, <&Tree>::default()).await?,
         ..Default::default()
     };
+    manager.mut_detect_installed_mods()?;
 
     let typist = manager
         .index
         .mods
         .iter()
         .find(|(id, _)| id == "kasimeka@typist")
-        .ok_or("Mod `kasimeka@typist` not found in index")?
+        .ok_or("`kasimeka@typist` not found in the index")?
         .clone();
 
-    reinstall_mod(&reqwest, &typist)
+    manager
+        .reinstall_mod(&reqwest, &typist)
         .await
         .map_err(|e| format!("failed to install mod: {e}"))?;
+    manager.installed_mods.iter().for_each(|(id, version)| {
+        log::info!("found managed mod: `{id}@{version}`");
+    });
 
-    manager.mut_detect_installed_mods()?;
+    manager
+        .uninstall_mod(&typist)
+        .map_err(|e| format!("failed to uninstall mod: {e}"))?;
+    log::info!("uninstalled  `kasimeka@typist`");
     manager.installed_mods.iter().for_each(|(id, version)| {
         log::info!("found installed mod: `{id}@{version}`");
     });
-
-    uninstall_mod(&typist).map_err(|e| format!("failed to uninstall mod: {e}"))?;
 
     Ok(())
 }

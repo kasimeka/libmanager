@@ -169,7 +169,7 @@ dependencies = [
 
 [[package]]
 name = "balatro_mod_manager"
-version = "0.0.3"
+version = "0.1.0"
 dependencies = [
  "balatro_mod_index",
  "dirs",

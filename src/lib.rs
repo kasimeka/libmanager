@@ -1,6 +1,6 @@
 #![allow(clippy::missing_errors_doc)]
 
-pub const CRATE_NAME: &str = "libBMM";
+pub const CRATE_NAME: &str = "libmanager";
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use balatro_mod_index::mods::{Mod, ModId, ModIndex};
 use zip::{ZipArchive, read::root_dir_common_filter};
 
+pub type ModEntry<'index> = (ModId, Mod<'index>);
 #[derive(Clone, Debug, Default)]
 pub struct ModManager<'index> {
     pub index: ModIndex<'index>,
@@ -20,9 +21,30 @@ impl ModManager<'_> {
         self.installed_mods = detect_installed_mods()?;
         Ok(())
     }
+
+    pub fn uninstall_mod(&mut self, (id, m): &ModEntry) -> Result<(), String> {
+        _ = self.installed_mods.remove(id).ok_or("mod not installed")?;
+        uninstall_mod(m)?;
+        Ok(())
+    }
+
+    pub async fn install_mod(
+        &mut self,
+        client: &reqwest::Client,
+        entry: &(ModId, Mod<'_>),
+    ) -> Result<(), String> {
+        install_mod(self, client, entry, false).await
+    }
+    pub async fn reinstall_mod(
+        &mut self,
+        client: &reqwest::Client,
+        entry: &(ModId, Mod<'_>),
+    ) -> Result<(), String> {
+        install_mod(self, client, entry, true).await
+    }
 }
 
-pub fn uninstall_mod((_, m): &(ModId, Mod<'_>)) -> Result<(), String> {
+fn uninstall_mod(m: &Mod<'_>) -> Result<(), String> {
     let mod_dir = mod_path(m)?;
 
     if !mod_dir.exists() {
@@ -32,16 +54,8 @@ pub fn uninstall_mod((_, m): &(ModId, Mod<'_>)) -> Result<(), String> {
     std::fs::remove_dir_all(mod_dir).map_err(|e| e.to_string())
 }
 
-pub async fn install_mod(client: &reqwest::Client, entry: &(ModId, Mod<'_>)) -> Result<(), String> {
-    install_mod_internal(client, entry, false).await
-}
-pub async fn reinstall_mod(
-    client: &reqwest::Client,
-    entry: &(ModId, Mod<'_>),
-) -> Result<(), String> {
-    install_mod_internal(client, entry, true).await
-}
-async fn install_mod_internal(
+async fn install_mod(
+    manager: &mut ModManager<'_>,
     client: &reqwest::Client,
     (id, m): &(ModId, Mod<'_>),
     reinstall: bool,
@@ -73,9 +87,13 @@ async fn install_mod_internal(
     zip.extract_unwrapped_root_dir(&outdir, root_dir_common_filter)
         .map_err(|e| e.to_string())?;
 
-    let mut statefile = File::create(outdir.join(format!(".{}-meta", crate::CRATE_NAME)))
-        .map_err(|e| e.to_string())?;
+    let mut statefile =
+        File::create(outdir.join(format!(".{}", crate::CRATE_NAME))).map_err(|e| e.to_string())?;
     write!(statefile, "id {id}\nversion {}", m.meta.version).map_err(|e| e.to_string())?;
+
+    manager
+        .installed_mods
+        .insert(id.clone(), m.meta.version.clone());
     Ok(())
 }
 
@@ -104,7 +122,7 @@ fn detect_installed_mods() -> Result<HashMap<ModId, String>, String> {
             continue;
         }
 
-        let statefile = path.join(format!(".{}-meta", crate::CRATE_NAME));
+        let statefile = path.join(format!(".{}", crate::CRATE_NAME));
         if !statefile.exists() {
             continue;
         }
