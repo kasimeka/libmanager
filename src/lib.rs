@@ -15,11 +15,14 @@ pub type ModEntry<'index> = (ModId, Mod<'index>);
 pub struct ModManager<'index> {
     pub index: ModIndex<'index>,
     pub installed_mods: HashMap<ModId, String>,
-    pub expected_mods: HashMap<ModId, String>,
+    pub expected_mods: HashMap<ModId, (bool, String)>,
 }
 impl ModManager<'_> {
     pub fn detect_installed_mods(&mut self) -> Result<(), String> {
-        self.installed_mods = detect_installed_mods()?;
+        self.installed_mods = detect_installed_mods()?
+            .into_iter()
+            .map(|(id, (_, version))| (id, version))
+            .collect();
         Ok(())
     }
     pub fn read_expected_mods(&mut self) -> Result<(), String> {
@@ -31,13 +34,18 @@ impl ModManager<'_> {
         let mut expectfile = File::create(p).map_err(|e| e.to_string())?;
         self.expected_mods
             .iter()
-            .try_for_each(|(id, version)| {
-                writeln!(expectfile, "{id}/{version}").map_err(|e| e.to_string())
+            .try_for_each(|(id, (enabled, version))| {
+                writeln!(
+                    expectfile,
+                    "{}/{id}/{version}",
+                    if *enabled { "" } else { "-" }
+                )
+                .map_err(|e| e.to_string())
             })
-            .map_err(|e| format!("failed to write expected mods: {e}"))
+            .map_err(|e| format!("failed to write expectfile: {e}"))
     }
     pub fn repopulate_expected_mods(&mut self) -> Result<(), String> {
-        self.expected_mods = self.installed_mods.clone();
+        self.expected_mods = detect_installed_mods()?;
         self.write_expected_mods()
     }
 
@@ -66,12 +74,30 @@ impl ModManager<'_> {
     ) -> Result<(), String> {
         install_mod(self, client, entry, true).await
     }
+    pub fn enable_mod(&mut self, (id, m): &ModEntry<'_>) -> Result<(), String> {
+        let version = self.installed_mods.get(id).ok_or("mod not installed")?;
+        let disablefile = mod_path(m)?.join(".lovelyignore");
+        if !disablefile.exists() {
+            return Ok(());
+        }
+        std::fs::remove_file(disablefile).map_err(|e| e.to_string())?;
+        self.expected_mods
+            .insert(id.clone(), (true, version.clone()));
+        self.write_expected_mods()
+    }
+    pub fn disable_mod(&mut self, (id, m): &ModEntry<'_>) -> Result<(), String> {
+        let version = self.installed_mods.get(id).ok_or("mod not installed")?;
+        File::create(mod_path(m)?.join(".lovelyignore")).map_err(|e| e.to_string())?;
+        self.expected_mods
+            .insert(id.clone(), (false, version.clone()));
+        self.write_expected_mods()
+    }
 }
 
 async fn install_mod(
     manager: &mut ModManager<'_>,
     client: &reqwest::Client,
-    e @ (id, m): &ModEntry<'_>,
+    entry @ (id, m): &ModEntry<'_>,
     reinstall: bool,
 ) -> Result<(), String> {
     let outdir = mod_path(m)?;
@@ -101,16 +127,16 @@ async fn install_mod(
     zip.extract_unwrapped_root_dir(&outdir, root_dir_common_filter)
         .map_err(|e| e.to_string())?;
 
-    let statusfile = &mut File::create(outdir.join(format!(".{}", crate::CRATE_NAME)))
+    let statefile = &mut File::create(outdir.join(format!(".{}", crate::CRATE_NAME)))
         .map_err(|e| e.to_string())?;
-    write_status(e, statusfile).map_err(|e| e.to_string())?;
+    write_state(entry, statefile).map_err(|e| e.to_string())?;
 
     manager
         .installed_mods
         .insert(id.clone(), m.meta.version.clone());
     manager
         .expected_mods
-        .insert(id.clone(), m.meta.version.clone());
+        .insert(id.clone(), (true, m.meta.version.clone()));
     manager.write_expected_mods()?;
     Ok(())
 }
@@ -124,7 +150,7 @@ fn mod_path(m: &Mod<'_>) -> Result<PathBuf, String> {
     Ok(mods_dir()?.join(&basename))
 }
 
-fn detect_installed_mods() -> Result<HashMap<ModId, String>, String> {
+fn detect_installed_mods() -> Result<HashMap<ModId, (bool, String)>, String> {
     let mods_dir = mods_dir()?;
 
     if !mods_dir.exists() {
@@ -142,10 +168,11 @@ fn detect_installed_mods() -> Result<HashMap<ModId, String>, String> {
         if !statefile.exists() {
             continue;
         }
-
         let (id, version) =
-            parse_status(&std::fs::read_to_string(statefile).map_err(|e| e.to_string())?)?;
-        mods.insert(id.clone(), version.clone());
+            parse_state(&std::fs::read_to_string(statefile).map_err(|e| e.to_string())?)?;
+        let enabled = !path.join(".lovelyignore").exists();
+
+        mods.insert(id.clone(), (enabled, version.clone()));
     }
 
     Ok(mods)
@@ -164,19 +191,19 @@ fn mods_dir() -> Result<PathBuf, String> {
     Ok(mods_dir)
 }
 
-fn write_status<T>((id, m): &ModEntry<'_>, statusfile: &mut T) -> Result<(), String>
+fn write_state<T>((id, m): &ModEntry<'_>, statefile: &mut T) -> Result<(), String>
 where
     T: Write,
 {
-    write!(statusfile, "{id}/{}", m.meta.version).map_err(|e| e.to_string())
+    write!(statefile, "{id}/{}", m.meta.version).map_err(|e| e.to_string())
 }
-fn parse_status(status: &str) -> Result<(ModId, String), String> {
-    status
+fn parse_state(state: &str) -> Result<(ModId, String), String> {
+    state
         .lines()
         .find(|l| !l.trim().is_empty())
-        .ok_or("statusfile can't be empty")?
+        .ok_or("statefile can't be empty")?
         .split_once('/')
-        .map_or(Err("invalid statusfile format".into()), |(id, version)| {
+        .map_or(Err("invalid statefile format".into()), |(id, version)| {
             if id.is_empty() {
                 return Err("id can't be empty".to_string());
             }
@@ -187,7 +214,7 @@ fn parse_status(status: &str) -> Result<(ModId, String), String> {
         })
 }
 
-fn read_expected_mods() -> Result<HashMap<ModId, String>, String> {
+fn read_expected_mods() -> Result<HashMap<ModId, (bool, String)>, String> {
     let p = mods_dir()?.join(format!(".{}", crate::CRATE_NAME));
     if !p.exists() {
         return Ok(HashMap::new());
@@ -197,8 +224,12 @@ fn read_expected_mods() -> Result<HashMap<ModId, String>, String> {
         .lines()
         .filter(|l| !l.trim().is_empty())
         .filter_map(|l| {
-            l.split_once('/')
-                .map(|(id, version)| (ModId(id.into()), version.to_string()))
+            if let [s, id, version] = l.split('/').collect::<Vec<_>>()[..] {
+                Some((ModId(id.into()), (s.is_empty(), version.to_string())))
+            } else {
+                log::warn!("invalid modspec format in `{l}`, ignored it");
+                None
+            }
         })
         .collect::<HashMap<_, _>>())
 }

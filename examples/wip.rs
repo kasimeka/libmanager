@@ -36,9 +36,16 @@ async fn main() -> Result<(), String> {
             _ => Err(format!("unexpected error while uninstalling mod: {e}")),
         })?;
     }
-    manager.installed_mods.iter().for_each(|(id, version)| {
-        log::info!("found managed mod: `{id}/{version}`");
-    });
+    manager
+        .expected_mods
+        .iter()
+        .for_each(|(id, (enabled, version))| {
+            log::info!(
+                "found managed mod: `{}/{id}/{version}`",
+                if *enabled { "" } else { "-" }
+            );
+        });
+
     for m in &mods {
         manager
             .install_mod(&reqwest, m)
@@ -46,9 +53,18 @@ async fn main() -> Result<(), String> {
             .map_err(|e| format!("failed to install mod: {e}"))?;
         log::info!("installed mod: `{}`", m.0);
     }
-    manager.installed_mods.iter().for_each(|(id, version)| {
-        log::info!("found managed mod: `{id}/{version}`");
-    });
+    let m = mods.first().unwrap();
+    manager.disable_mod(m)?;
+    log::info!("disabled mod: `{}`", m.0);
+    manager
+        .expected_mods
+        .iter()
+        .for_each(|(id, (enabled, version))| {
+            log::info!(
+                "found managed mod: `{}/{id}/{version}`",
+                if *enabled { "" } else { "-" }
+            );
+        });
 
     Ok(())
 }
