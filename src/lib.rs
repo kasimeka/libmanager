@@ -31,14 +31,14 @@ impl ModManager<'_> {
     pub async fn install_mod(
         &mut self,
         client: &reqwest::Client,
-        entry: &(ModId, Mod<'_>),
+        entry: &ModEntry<'_>,
     ) -> Result<(), String> {
         install_mod(self, client, entry, false).await
     }
     pub async fn reinstall_mod(
         &mut self,
         client: &reqwest::Client,
-        entry: &(ModId, Mod<'_>),
+        entry: &ModEntry<'_>,
     ) -> Result<(), String> {
         install_mod(self, client, entry, true).await
     }
@@ -57,7 +57,7 @@ fn uninstall_mod(m: &Mod<'_>) -> Result<(), String> {
 async fn install_mod(
     manager: &mut ModManager<'_>,
     client: &reqwest::Client,
-    (id, m): &(ModId, Mod<'_>),
+    (id, m): &ModEntry<'_>,
     reinstall: bool,
 ) -> Result<(), String> {
     let outdir = mod_path(m)?;

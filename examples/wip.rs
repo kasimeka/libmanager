@@ -26,19 +26,25 @@ async fn main() -> Result<(), String> {
         .clone();
 
     manager
-        .reinstall_mod(&reqwest, &typist)
-        .await
-        .map_err(|e| format!("failed to install mod: {e}"))?;
+        .uninstall_mod(&typist)
+        .or_else(|e| match e.as_str() {
+            "mod not installed" => {
+                log::warn!("didn't uninstall `kasimeka@typist` as it wasn't installed");
+                Ok(())
+            }
+            _ => Err(format!("unexpected error while uninstalling mod: {e}")),
+        })?;
     manager.installed_mods.iter().for_each(|(id, version)| {
         log::info!("found managed mod: `{id}@{version}`");
     });
 
     manager
-        .uninstall_mod(&typist)
-        .map_err(|e| format!("failed to uninstall mod: {e}"))?;
-    log::info!("uninstalled  `kasimeka@typist`");
+        .install_mod(&reqwest, &typist)
+        .await
+        .map_err(|e| format!("failed to install mod: {e}"))?;
+    log::info!("installed mod: `{}`", typist.0);
     manager.installed_mods.iter().for_each(|(id, version)| {
-        log::info!("found installed mod: `{id}@{version}`");
+        log::info!("found managed mod: `{id}@{version}`");
     });
 
     Ok(())

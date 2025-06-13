@@ -15,7 +15,7 @@ categories = [
 name = "balatro_mod_manager"
 
 [dependencies]
-balatro_mod_index = { git = "https://github.com/balatro-mod-index/lib", branch = "playground", version = "0.3.2", features = ["reqwest"] }
+balatro_mod_index = { version = "0.4.0", features = ["reqwest"] }
 dirs = "6.0.0"
 log = "0.4.27"
 reqwest = "0.12.20"

@@ -154,8 +154,9 @@ dependencies = [
 
 [[package]]
 name = "balatro_mod_index"
-version = "0.3.2"
-source = "git+https://github.com/balatro-mod-index/lib?branch=playground#c873bc354e50c1478bc7337a130388a623429c69"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e583883c813961434d7df51778e5bf022185f0347f70487068109ab391fa92d"
 dependencies = [
  "bytes",
  "cached",
