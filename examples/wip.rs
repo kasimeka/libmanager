@@ -1,8 +1,8 @@
 // cargo run --example wip
 
 use balatro_mod_index::{forge::Tree, mods::ModIndex};
-use balatro_mod_manager::ModManager;
 use env_logger::Env;
+use lovely_mod_manager::ModManager;
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
