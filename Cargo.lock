@@ -154,9 +154,9 @@ dependencies = [
 
 [[package]]
 name = "balatro_mod_index"
-version = "0.4.0"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e583883c813961434d7df51778e5bf022185f0347f70487068109ab391fa92d"
+checksum = "3aaf69701ec723b4a51a644b099aeb81d5d0ffdaf9e9c32b32df8219578ebd25"
 dependencies = [
  "bytes",
  "cached",
@@ -165,19 +165,6 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "zip",
-]
-
-[[package]]
-name = "balatro_mod_manager"
-version = "0.3.0"
-dependencies = [
- "balatro_mod_index",
- "dirs",
- "env_logger",
- "log",
- "reqwest",
- "tokio",
  "zip",
 ]
 
@@ -1119,6 +1106,19 @@ name = "log"
 version = "0.4.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13dc2df351e3202783a1fe0d44375f7295ffb4049267b0f3018346dc122a1d94"
+
+[[package]]
+name = "lovely_mod_manager"
+version = "0.4.0"
+dependencies = [
+ "balatro_mod_index",
+ "dirs",
+ "env_logger",
+ "log",
+ "reqwest",
+ "tokio",
+ "zip",
+]
 
 [[package]]
 name = "memchr"
