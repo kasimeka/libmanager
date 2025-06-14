@@ -1,7 +1,7 @@
 [package]
 name = "balatro_mod_manager"
 description = "a library for downloading Balatro mods and interacting with the `balatro_mod_index` crate."
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "LGPL-3.0-only"
 exclude = [".gitignore", "flake.*"]

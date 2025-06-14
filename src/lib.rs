@@ -12,27 +12,24 @@ use zip::{ZipArchive, read::root_dir_common_filter};
 
 pub type ModEntry<'index> = (ModId, Mod<'index>);
 #[derive(Clone, Debug, Default)]
-pub struct ModManager<'index> {
+pub struct ModManager<'index, 'p> {
     pub index: ModIndex<'index>,
-    pub installed_mods: HashMap<ModId, String>,
-    pub expected_mods: HashMap<ModId, (bool, String)>,
+    pub game_path: Option<&'p String>,
+    pub installed_mods: HashMap<ModId, (bool, String)>,
 }
-impl ModManager<'_> {
-    pub fn detect_installed_mods(&mut self) -> Result<(), String> {
-        self.installed_mods = detect_installed_mods()?
-            .into_iter()
-            .map(|(id, (_, version))| (id, version))
-            .collect();
+impl ModManager<'_, '_> {
+    pub fn rebuild_expectfile(&mut self) -> Result<(), String> {
+        self.installed_mods = detect_installed_mods(self.game_path)?;
+        self.write_expectfile()
+    }
+    pub fn read_expectfile(&mut self) -> Result<(), String> {
+        self.installed_mods = read_expectfile(self.game_path)?;
         Ok(())
     }
-    pub fn read_expected_mods(&mut self) -> Result<(), String> {
-        self.expected_mods = read_expected_mods()?;
-        Ok(())
-    }
-    pub fn write_expected_mods(&self) -> Result<(), String> {
-        let p = mods_dir()?.join(format!(".{}", crate::CRATE_NAME));
+    pub fn write_expectfile(&self) -> Result<(), String> {
+        let p = mods_dir(self.game_path)?.join(format!(".{}", crate::CRATE_NAME));
         let mut expectfile = File::create(p).map_err(|e| e.to_string())?;
-        self.expected_mods
+        self.installed_mods /* expected_mods */
             .iter()
             .try_for_each(|(id, (enabled, version))| {
                 writeln!(
@@ -44,21 +41,16 @@ impl ModManager<'_> {
             })
             .map_err(|e| format!("failed to write expectfile: {e}"))
     }
-    pub fn repopulate_expected_mods(&mut self) -> Result<(), String> {
-        self.expected_mods = detect_installed_mods()?;
-        self.write_expected_mods()
-    }
 
     pub fn uninstall_mod(&mut self, (id, m): &ModEntry) -> Result<(), String> {
         _ = self.installed_mods.get(id).ok_or("mod not installed")?;
-        let mod_dir = mod_path(m)?;
+        let mod_dir = mod_path(self.game_path, m)?;
         if !mod_dir.exists() {
             return Ok(());
         }
         std::fs::remove_dir_all(mod_dir).map_err(|e| e.to_string())?;
         self.installed_mods.remove(id);
-        self.expected_mods.remove(id);
-        self.write_expected_mods()
+        self.write_expectfile()
     }
     pub async fn install_mod(
         &mut self,
@@ -75,32 +67,33 @@ impl ModManager<'_> {
         install_mod(self, client, entry, true).await
     }
     pub fn enable_mod(&mut self, (id, m): &ModEntry<'_>) -> Result<(), String> {
-        let version = self.installed_mods.get(id).ok_or("mod not installed")?;
-        let disablefile = mod_path(m)?.join(".lovelyignore");
+        let (_, version) = self.installed_mods.get(id).ok_or("mod not installed")?;
+        let disablefile = mod_path(self.game_path, m)?.join(".lovelyignore");
         if !disablefile.exists() {
             return Ok(());
         }
         std::fs::remove_file(disablefile).map_err(|e| e.to_string())?;
-        self.expected_mods
+        self.installed_mods
             .insert(id.clone(), (true, version.clone()));
-        self.write_expected_mods()
+        self.write_expectfile()
     }
     pub fn disable_mod(&mut self, (id, m): &ModEntry<'_>) -> Result<(), String> {
-        let version = self.installed_mods.get(id).ok_or("mod not installed")?;
-        File::create(mod_path(m)?.join(".lovelyignore")).map_err(|e| e.to_string())?;
-        self.expected_mods
+        let (_, version) = self.installed_mods.get(id).ok_or("mod not installed")?;
+        File::create(mod_path(self.game_path, m)?.join(".lovelyignore"))
+            .map_err(|e| e.to_string())?;
+        self.installed_mods
             .insert(id.clone(), (false, version.clone()));
-        self.write_expected_mods()
+        self.write_expectfile()
     }
 }
 
 async fn install_mod(
-    manager: &mut ModManager<'_>,
+    manager: &mut ModManager<'_, '_>,
     client: &reqwest::Client,
     entry @ (id, m): &ModEntry<'_>,
     reinstall: bool,
 ) -> Result<(), String> {
-    let outdir = mod_path(m)?;
+    let outdir = mod_path(manager.game_path, m)?;
 
     let data = client
         .get(&m.meta.download_url)
@@ -133,25 +126,24 @@ async fn install_mod(
 
     manager
         .installed_mods
-        .insert(id.clone(), m.meta.version.clone());
-    manager
-        .expected_mods
         .insert(id.clone(), (true, m.meta.version.clone()));
-    manager.write_expected_mods()?;
+    manager.write_expectfile()?;
     Ok(())
 }
 
-fn mod_path(m: &Mod<'_>) -> Result<PathBuf, String> {
+fn mod_path(game_path: Option<&String>, m: &Mod<'_>) -> Result<PathBuf, String> {
     let basename = m
         .meta
         .folder_name
         .clone()
         .unwrap_or_else(|| m.meta.title.chars().filter(char::is_ascii).collect());
-    Ok(mods_dir()?.join(&basename))
+    Ok(mods_dir(game_path)?.join(&basename))
 }
 
-fn detect_installed_mods() -> Result<HashMap<ModId, (bool, String)>, String> {
-    let mods_dir = mods_dir()?;
+fn detect_installed_mods(
+    game_path: Option<&String>,
+) -> Result<HashMap<ModId, (bool, String)>, String> {
+    let mods_dir = mods_dir(game_path)?;
 
     if !mods_dir.exists() {
         return Err("Mods directory does not exist".to_string());
@@ -178,14 +170,49 @@ fn detect_installed_mods() -> Result<HashMap<ModId, (bool, String)>, String> {
     Ok(mods)
 }
 
-fn mods_dir() -> Result<PathBuf, String> {
-    let mods_dir = dirs::config_dir()
+fn mods_dir(game_path: Option<&String>) -> Result<PathBuf, String> {
+    let mut mods_dir = dirs::config_dir()
         .ok_or("couldn't find config directory, your env is so cooked")?
         .join("Balatro")
         .join("Mods");
 
-    if !mods_dir.exists() {
-        std::fs::create_dir_all(&mods_dir).map_err(|e| e.to_string())?;
+    // implicit support for proton and wine
+    #[cfg(target_os = "linux")]
+    {
+        let wine_mods_dir = {
+            let prefix = {
+                let p = game_path.map_or(PathBuf::new(), PathBuf::from);
+                if p.ends_with("steamapps/common/Balatro/") {
+                    p.parent().unwrap().parent().unwrap().to_path_buf()
+                } else {
+                    dirs::home_dir()
+                        .ok_or("couldn't find home directory, your env is so cooked")?
+                        .join(".steam/steam/steamapps/")
+                }
+            };
+            log::debug!("assumed steam wineprefix `{}`", prefix.to_string_lossy());
+
+            prefix
+                .join("compatdata/2379780/pfx/drive_c/users/steamuser/AppData/Roaming/Balatro/Mods")
+        };
+
+        if !wine_mods_dir.exists() {
+            std::fs::create_dir_all(&wine_mods_dir).map_err(|e| e.to_string())?;
+        }
+
+        if mods_dir.read_link().is_ok() {
+            std::fs::remove_file(&mods_dir).map_err(|e| e.to_string())?;
+            std::os::unix::fs::symlink(&wine_mods_dir, mods_dir).unwrap_or(());
+        } else if mods_dir.exists() {
+            log::warn!(
+                "mods dir `{}` already exists will not overwrite it",
+                mods_dir.display()
+            );
+        } else {
+            std::os::unix::fs::symlink(&wine_mods_dir, mods_dir).unwrap_or(());
+        }
+
+        mods_dir = wine_mods_dir;
     }
 
     Ok(mods_dir)
@@ -214,8 +241,8 @@ fn parse_state(state: &str) -> Result<(ModId, String), String> {
         })
 }
 
-fn read_expected_mods() -> Result<HashMap<ModId, (bool, String)>, String> {
-    let p = mods_dir()?.join(format!(".{}", crate::CRATE_NAME));
+fn read_expectfile(game_path: Option<&String>) -> Result<HashMap<ModId, (bool, String)>, String> {
+    let p = mods_dir(game_path)?.join(format!(".{}", crate::CRATE_NAME));
     if !p.exists() {
         return Ok(HashMap::new());
     }

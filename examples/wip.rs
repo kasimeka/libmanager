@@ -15,8 +15,8 @@ async fn main() -> Result<(), String> {
         index: ModIndex::from_reqwest(&reqwest, <&Tree>::default()).await?,
         ..Default::default()
     };
-    manager.detect_installed_mods()?;
-    manager.read_expected_mods()?;
+    // manager.detect_installed_mods()?;
+    manager.read_expectfile()?;
 
     let mods = manager
         .index
@@ -37,7 +37,7 @@ async fn main() -> Result<(), String> {
         })?;
     }
     manager
-        .expected_mods
+        .installed_mods
         .iter()
         .for_each(|(id, (enabled, version))| {
             log::info!(
@@ -57,7 +57,7 @@ async fn main() -> Result<(), String> {
     manager.disable_mod(m)?;
     log::info!("disabled mod: `{}`", m.0);
     manager
-        .expected_mods
+        .installed_mods
         .iter()
         .for_each(|(id, (enabled, version))| {
             log::info!(
