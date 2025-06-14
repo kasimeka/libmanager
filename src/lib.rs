@@ -2,10 +2,13 @@
 
 pub const CRATE_NAME: &str = "libmanager";
 
-use std::collections::HashMap;
-use std::fs::File;
-use std::io::{self, Write};
-use std::path::PathBuf;
+use std::{
+    collections::HashMap,
+    env,
+    fs::File,
+    io::{self, Write},
+    path::PathBuf,
+};
 
 use balatro_mod_index::mods::{Mod, ModId, ModIndex};
 use zip::{ZipArchive, read::root_dir_common_filter};
@@ -171,6 +174,14 @@ fn detect_installed_mods(
 }
 
 fn mods_dir(game_path: Option<&String>) -> Result<PathBuf, String> {
+    if let Some(p) = env::var_os("LOVELY_MOD_DIR") {
+        let p = PathBuf::from(p);
+        if !p.exists() {
+            std::fs::create_dir_all(&p).map_err(|e| e.to_string())?;
+        }
+        return Ok(p);
+    }
+
     let mut mods_dir = dirs::config_dir()
         .ok_or("couldn't find config directory, your env is so cooked")?
         .join("Balatro")
@@ -201,7 +212,7 @@ fn mods_dir(game_path: Option<&String>) -> Result<PathBuf, String> {
         }
 
         if mods_dir.read_link().is_ok() {
-            std::fs::remove_file(&mods_dir).map_err(|e| e.to_string())?;
+            std::fs::remove_file(&mods_dir).unwrap_or(());
             std::os::unix::fs::symlink(&wine_mods_dir, mods_dir).unwrap_or(());
         } else if mods_dir.exists() {
             log::warn!(
