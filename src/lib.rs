@@ -27,8 +27,8 @@ pub type ModEntry<'index> = (ModId, Mod<'index>);
 impl<'index, 'game> ModManager<'index, 'game> {
     pub fn new(index: ModIndex<'index>, game: Game<'game>) -> Result<Self, String> {
         let mods_dir = game
-            .get_mods_dir()
-            .map_err(|e| format!("failed to detecte mods dir: {e}"))?;
+            .detect_and_init_mods_dir()
+            .map_err(|e| format!("failed to detect mods dir: {e}"))?;
         let installed_mods = read_expectfile(&mods_dir)?;
         Ok(Self {
             index,
@@ -38,8 +38,11 @@ impl<'index, 'game> ModManager<'index, 'game> {
         })
     }
     pub fn replace_game(&mut self, game: Game<'game>) -> Result<(), String> {
-        self.mods_dir = game.get_mods_dir()?;
+        let mods_dir = game.detect_and_init_mods_dir()?;
+        let installed_mods = read_expectfile(&mods_dir)?;
         self.game = game;
+        self.mods_dir = mods_dir;
+        self.installed_mods = installed_mods;
         Ok(())
     }
 
@@ -130,13 +133,17 @@ fn read_expectfile(mods_dir: &Path) -> Result<HashMap<ModId, (bool, String)>, St
     Ok(std::fs::read_to_string(expectfile)
         .map_err(|e| e.to_string())?
         .lines()
-        .filter(|l| !l.trim().is_empty())
         .filter_map(|l| {
-            if let [s, id, version] = l.split('/').collect::<Vec<_>>()[..] {
-                Some((ModId(id.into()), (s.is_empty(), version.to_string())))
-            } else {
-                log::warn!("invalid modspec format in `{l}`, ignored it");
-                None
+            let l = l.trim();
+            if l.is_empty() {
+                return None;
+            }
+            match parse_modspec(l) {
+                Ok(s) => Some(s),
+                Err(e) => {
+                    log::warn!("failed to parse modspec `{l}`: {e}, skipping it");
+                    None
+                }
             }
         })
         .collect::<HashMap<_, _>>())
@@ -154,6 +161,19 @@ where
         if *enabled { "" } else { "-" }
     )
     .map_err(|e| e.to_string())
+}
+fn parse_modspec(line: &str) -> Result<(ModId, (bool, String)), String> {
+    if let [s, id, version] = line.split('/').collect::<Vec<_>>()[..] {
+        if id.is_empty() {
+            return Err("id can't be empty".to_string());
+        }
+        if version.is_empty() {
+            return Err("version can't be empty".to_string());
+        }
+        Ok((ModId(id.into()), (s.is_empty(), version.to_string())))
+    } else {
+        Err("invalid modspec format".to_string())
+    }
 }
 
 async fn install_mod(
