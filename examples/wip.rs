@@ -2,7 +2,7 @@
 
 use balatro_mod_index::{forge::Tree, mods::ModIndex};
 use env_logger::Env;
-use lovely_mod_manager::ModManager;
+use lovely_mod_manager::{self as lmm, ModManager};
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
@@ -11,23 +11,22 @@ async fn main() -> Result<(), String> {
     let reqwest = reqwest::Client::new();
 
     log::info!("fetching index...");
-    let mut manager = ModManager {
-        index: ModIndex::from_reqwest(&reqwest, <&Tree>::default()).await?,
-        ..Default::default()
-    };
-    // manager.detect_installed_mods()?;
-    manager.read_expectfile()?;
 
-    let mods = manager
+    let mut manager = ModManager::new(
+        ModIndex::from_reqwest(&reqwest, <&Tree>::default()).await?,
+        lmm::Game::default_balatro(),
+    )?;
+
+    let target_mods = manager
         .index
         .mods
         .iter()
         .filter(|(id, _)| id == "kasimeka@typist" || id == "Breezebuilder@SystemClock")
         .cloned()
         .collect::<Vec<_>>();
-    assert!(mods.len() == 2, "couldn't find expected mods");
+    assert!(target_mods.len() == 2, "couldn't find expected mods");
 
-    for m in &mods {
+    for m in &target_mods {
         manager.uninstall_mod(m).or_else(|e| match e.as_str() {
             "mod not installed" => {
                 log::warn!("didn't uninstall `{}` as it wasn't installed", m.0);
@@ -37,7 +36,7 @@ async fn main() -> Result<(), String> {
         })?;
     }
     manager
-        .installed_mods
+        .installed_mods()
         .iter()
         .for_each(|(id, (enabled, version))| {
             log::info!(
@@ -46,18 +45,18 @@ async fn main() -> Result<(), String> {
             );
         });
 
-    for m in &mods {
+    for m in &target_mods {
         manager
             .install_mod(&reqwest, m)
             .await
             .map_err(|e| format!("failed to install mod: {e}"))?;
         log::info!("installed mod: `{}`", m.0);
     }
-    let m = mods.first().unwrap();
+    let m = target_mods.first().unwrap();
     manager.disable_mod(m)?;
     log::info!("disabled mod: `{}`", m.0);
     manager
-        .installed_mods
+        .installed_mods()
         .iter()
         .for_each(|(id, (enabled, version))| {
             log::info!(
