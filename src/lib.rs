@@ -1,3 +1,11 @@
+#![deny(
+    missing_debug_implementations,
+    rust_2018_idioms,
+    clippy::complexity,
+    clippy::correctness
+)]
+#![warn(clippy::perf, clippy::pedantic)]
+// TODO: add ALL THE DOCS
 #![allow(clippy::missing_errors_doc)]
 
 pub mod game;
@@ -79,9 +87,9 @@ impl<'index, 'game> ModManager<'index, 'game> {
             .map_err(|e| format!("failed to write expectfile: {e}"))
     }
 
-    pub fn uninstall_mod(&mut self, (id, m): &ModEntry) -> Result<(), String> {
+    pub fn uninstall_mod(&mut self, (id, m): &ModEntry<'_>) -> Result<(), String> {
         _ = self.installed_mods.get(id).ok_or("mod not installed")?;
-        let mod_dir = get_mod_path(&self.mods_dir, m);
+        let mod_dir = mod_path(&self.mods_dir, m);
         if !mod_dir.exists() {
             return Ok(());
         }
@@ -106,7 +114,7 @@ impl<'index, 'game> ModManager<'index, 'game> {
 
     pub fn disable_mod(&mut self, (id, m): &ModEntry<'_>) -> Result<(), String> {
         let (_, version) = self.installed_mods.get(id).ok_or("mod not installed")?;
-        File::create(get_mod_path(&self.mods_dir, m).join(".lovelyignore"))
+        File::create(mod_path(&self.mods_dir, m).join(".lovelyignore"))
             .map_err(|e| e.to_string())?;
         self.installed_mods
             .insert(id.clone(), (false, version.clone()));
@@ -114,7 +122,7 @@ impl<'index, 'game> ModManager<'index, 'game> {
     }
     pub fn enable_mod(&mut self, (id, m): &ModEntry<'_>) -> Result<(), String> {
         let (_, version) = self.installed_mods.get(id).ok_or("mod not installed")?;
-        let disablefile = get_mod_path(&self.mods_dir, m).join(".lovelyignore");
+        let disablefile = mod_path(&self.mods_dir, m).join(".lovelyignore");
         if !disablefile.exists() {
             return Ok(());
         }
@@ -182,7 +190,7 @@ async fn install_mod(
     entry @ (id, m): &ModEntry<'_>,
     reinstall: bool,
 ) -> Result<(), String> {
-    let outdir = get_mod_path(&manager.mods_dir, m);
+    let outdir = mod_path(&manager.mods_dir, m);
 
     let data = client
         .get(&m.meta.download_url)
@@ -271,7 +279,7 @@ fn parse_state(state: &str) -> Result<(ModId, String), String> {
         })
 }
 
-fn get_mod_path(mods_dir: &Path, m: &Mod<'_>) -> std::path::PathBuf {
+fn mod_path(mods_dir: &Path, m: &Mod<'_>) -> std::path::PathBuf {
     let basename = m.meta.folder_name.as_ref().map_or_else(
         || m.meta.title.chars().filter(char::is_ascii).collect(),
         Clone::clone,
